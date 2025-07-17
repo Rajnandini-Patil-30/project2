@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>NIDS Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { margin: 20px; }
+        .malicious { background-color: #f8d7da; }
+        .scrollable-table { height: 500px; overflow-y: auto; }
+    </style>
+    <script src="https://unpkg.com/axios/dist/axios.min.js"></script>  </head>
+<body>
+
+<div class="container">
+    <h2 class="mb-4">🛡️ AI-Powered NIDS Dashboard</h2>
+
+    <input id="searchInput" type="text" class="form-control mb-3" placeholder="Search in table..." onkeyup="searchTable()">
+
+    <div class="scrollable-table">
+        <table class="table table-hover table-bordered" id="logTable">
+            <thead class="table-dark">
+                <tr>
+                    <th onclick="sortTable(0)">Source IP</th>
+                    <th onclick="sortTable(1)">Destination IP</th>
+                    <th onclick="sortTable(2)">Entropy</th>
+                    <th onclick="sortTable(3)">DPI Flag</th>
+                    <th onclick="sortTable(4)">AI Prediction</th> </tr>
+            </thead>
+            <tbody>
+                {% for row in logs %}
+                <tr class="{{ 'malicious' if row.dpi_flag else '' }}">
+                    <td>{{ row.src_ip }}</td>
+                    <td>{{ row.dst_ip }}</td>
+                    <td>{{ "%.3f"|format(row.entropy) }}</td>
+                    <td>{{ "Suspicious" if row.dpi_flag else "Clean" }}</td>
+                    <td id="ai-prediction-{{ loop.index0 }}">Loading...</td> 
+                    <td style="display:none;">{{ row.payload }}</td></tr>
+                    
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+function searchTable() {
+    var input, filter, table, tr, td, i, j, txtValue, found;
+    input = document.getElementById("searchInput");
+    filter = input.value.toUpperCase();
+    table = document.getElementById("logTable");
+    tr = table.getElementsByTagName("tr");
+
+    for (i = 1; i < tr.length; i++) {
+        found = false;
+        td = tr[i].getElementsByTagName("td");
+        for (j = 0; j < td.length; j++) {
+            if (td[j]) {
+                txtValue = td[j].textContent || td[j].innerText;
+                if (txtValue.toUpperCase().indexOf(filter) > -1) {
+                    found = true;
+                }
+            }
+        }
+        tr[i].style.display = found ? "" : "none";
+    }
+}
+
+function sortTable(n) {
+    var table, rows, switching, i, x, y, shouldSwitch, dir, switchcount = 0;
+    table = document.getElementById("logTable");
+    switching = true;
+    dir = "asc";
+
+    while (switching) {
+        switching = false;
+        rows = table.rows;
+
+        for (i = 1; i < (rows.length - 1); i++) {
+            shouldSwitch = false;
+
+            x = rows[i].getElementsByTagName("TD")[n];
+            y = rows[i + 1].getElementsByTagName("TD")[n];
+
+            if (dir === "asc") {
+                if (x.innerHTML.toLowerCase() > y.innerHTML.toLowerCase()) {
+                    shouldSwitch = true;
+                    break;
+                }
+            } else if (dir === "desc") {
+                if (x.innerHTML.toLowerCase() < y.innerHTML.toLowerCase()) {
+                    shouldSwitch = true;
+                    break;
+                }
+            }
+        }
+
+        if (shouldSwitch) {
+            rows[i].parentNode.insertBefore(rows[i + 1], rows[i]);
+            switching = true;
+            switchcount++;
+        } else {
+            if (switchcount === 0 && dir === "asc") {
+                dir = "desc";
+                switching = true;
+            }
+        }
+    }
+}
+
+// Function to send packet data to the server for analysis
+function analyzePacket(packetData, rowId) {
+    axios.post('/analyze_packet', packetData)
+        .then(response => {
+            const predictionCell = document.getElementById(rowId);
+            if (predictionCell) {
+                if (response.data.malicious) {
+                    predictionCell.textContent = 'Malicious (AI)';
+                    predictionCell.style.backgroundColor = '#f8d7da'; // Light red
+                } else {
+                    predictionCell.textContent = 'Benign (AI)';
+                    predictionCell.style.backgroundColor = '#d4edda'; // Light green
+                }
+            }
+        })
+        .catch(error => {
+            console.error('Error analyzing packet:', error);
+            const predictionCell = document.getElementById(rowId);
+            if (predictionCell) {
+                predictionCell.textContent = 'Error (AI)';
+                predictionCell.style.backgroundColor = '#fff3cd'; // Light yellow, indicating an error
+            }
+        });
+}
+
+//  Add this inside the <script> tag in index.html
+window.onload = function() {
+    const table = document.getElementById("logTable");
+    const rows = table.getElementsByTagName("tr");
+
+    // Iterate through each row (starting from the second row, index 1)
+    for (let i = 1; i < rows.length; i++) {
+        const row = rows[i];
+        const srcIp = row.cells[0].textContent;  // Get Source IP
+        const dstIp = row.cells[1].textContent;  // Get Destination IP
+        const entropy = parseFloat(row.cells[2].textContent); // Get Entropy
+        const payload = row.cells[5].textContent; //  Payload is not in the table.  You'd need to
+                           //  get it from the server if needed for the AI.
+                           //  For this example, we'll send an empty payload.
+
+        //  Create a packet representation.  This matches what the server expects.
+        const packetData = {
+            src_ip: srcIp,
+            dst_ip: dstIp,
+            entropy: entropy,
+            payload: payload, //  Important:  Send the *actual* payload if you have it.
+        };
+        const rowId = `ai-prediction-${i-1}`;  // Unique ID for the prediction cell
+        analyzePacket(packetData, rowId); // Send packet data for analysis
+    }
+};
+</script>
+
+</body>
+</html>
